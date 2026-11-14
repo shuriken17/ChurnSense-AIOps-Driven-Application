@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  - job_name: model-server
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["model-server:8001"]
+
+  - job_name: backend
+    metrics_path: /api/v1/metrics
+    static_configs:
+      - targets: ["backend:8000"]
+
+  - job_name: drift-monitor
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["drift-monitor:8002"]
+
+  # Pipeline stages and the retrain controller push their metrics here when they finish.
+  # honor_labels keeps the job and stage labels they set.
+  - job_name: pushgateway
+    honor_labels: true
+    static_configs:
+      - targets: ["pushgateway:9091"]

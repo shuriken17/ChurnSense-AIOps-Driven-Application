@@ -1,0 +1,83 @@
+groups:
+  - name: churnsense
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.job }} is not answering Prometheus"
+
+      - alert: NoModelLoaded
+        expr: absent(churnsense_model_info)
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "The model server has no model loaded"
+
+      - alert: HighErrorRate
+        expr: sum(rate(churnsense_api_requests_total{status=~"5.."}[5m])) / sum(rate(churnsense_api_requests_total[5m])) > 0.05
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than 5 percent of API requests fail"
+
+      - alert: HighPredictionLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(churnsense_model_request_seconds_bucket[5m]))) > 0.5
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "95th percentile prediction time is above 0.5 s"
+
+      - alert: DriftAlert
+        expr: churnsense_drift_status >= 3
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "Input data drift: PSI at or above 0.25 for several checks in a row"
+
+      - alert: DriftMonitorBlind
+        expr: time() - churnsense_drift_last_check_timestamp_seconds > 300
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "The drift monitor has not completed a check for 5 minutes"
+
+      - alert: LiveRecallLow
+        expr: churnsense_live_recall < 0.6 and churnsense_live_feedback_rows >= 100
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Recall on reported outcomes is below 0.6"
+
+      - alert: InferenceLogErrors
+        expr: increase(churnsense_api_log_errors_total[10m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Predictions could not be written to the inference log"
+
+      - alert: PipelineStageFailed
+        expr: churnsense_stage_last_status == 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Pipeline stage {{ $labels.stage }} failed on its last run"
+
+      - alert: ControllerRunFailed
+        expr: churnsense_controller_last_outcome == 0
+        labels: {severity: warning}
+        annotations:
+          summary: "The last automatic retraining run failed"
+
+      - alert: DependencyDown
+        expr: churnsense_dependency_up == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.name }} does not answer its health check"
+
+      - alert: ControllerStalled
+        expr: churnsense_controller_heartbeat_age_seconds > 300
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: "The retrain controller has not reported for 5 minutes"

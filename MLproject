@@ -1,0 +1,16 @@
+name: churnsense
+
+# The same code the DVC pipeline runs, as MLflow Project entry points (`mlflow run . -e train`).
+# Inside the trainer container use --env-manager local: the libraries are already installed.
+python_env: python_env.yaml
+
+entry_points:
+  pipeline:
+    command: "dvc repro"
+  train:
+    parameters:
+      family: {type: string, default: both}
+      n_iter: {type: int, default: 20}
+    command: "python -m churnsense.pipeline.train --family {family} --n-iter {n_iter}"
+  evaluate:
+    command: "python -m churnsense.pipeline.evaluate"

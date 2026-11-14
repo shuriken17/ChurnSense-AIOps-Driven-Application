@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+junit.xml
+report.html
+.venv/
+# Secrets and local settings (never commit)
+.env
+# Large or generated files are tracked by DVC, not Git
+/data/raw/telco_churn.csv
+/data/interim
+/data/processed
+/data/synthetic
+/data/quarantine
+/data/feedback/*.parquet
+/reports/eda
+/reports/plots/*.png
+/models/candidate
+# Node
+node_modules/
+

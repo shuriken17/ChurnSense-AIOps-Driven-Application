@@ -1,0 +1,7 @@
+{
+  "name": "churnsense-ui-tests",
+  "private": true,
+  "description": "Tests of the web interface in a simulated browser. Run: npm install && npm test",
+  "scripts": { "test": "node --test" },
+  "devDependencies": { "jsdom": "24.1.3" }
+}

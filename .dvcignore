@@ -1,0 +1,4 @@
+# Add patterns of files DVC should ignore here, in .gitignore syntax.
+__pycache__
+.pytest_cache
+.ruff_cache

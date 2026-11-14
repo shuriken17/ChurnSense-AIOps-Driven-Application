@@ -1,0 +1,361 @@
+# ChurnSense Compose project. Batch 3: MLflow, model server, backend API and nginx (HTTPS) run
+# all the time; the trainer is on demand. Monitoring and the rest follow in later batches. The trainer is in the "train" profile, so
+# `docker compose up` never starts it; use `docker compose --profile train run --rm trainer ...`
+# (that also starts MLflow, which the trainer needs).
+name: churnsense
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  mlflow:
+    # Same image as the trainer: it already contains MLflow, so no separate build is needed.
+    image: churnsense/base:${TAG:-dev}
+    user: "${HOST_UID:?run make env first}:${HOST_GID:?run make env first}"
+    working_dir: /tmp
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --workers=1
+      - --backend-store-uri=sqlite:////mlflow/db/mlflow.db
+      - --serve-artifacts
+      - --artifacts-destination=/mlflow/artifacts
+      - --default-artifact-root=mlflow-artifacts:/
+      # (No --expose-prometheus: it needs the prometheus_flask_exporter package, which is not in
+      # requirements.lock, and the server then refuses to start. Checked.)
+      # Without this list MLflow answers HTTP 403 to the host name "mlflow:5000" that the other
+      # containers use (checked). Unknown host names are still refused.
+      - --allowed-hosts=mlflow:5000,mlflow,localhost:5000,localhost,127.0.0.1:5000,127.0.0.1
+    environment:
+      HOME: /tmp/home
+      USER: mlflow
+      LOGNAME: mlflow
+      # MLflow 3 starts 8 extra worker processes for its job feature unless told not to:
+      # 10 processes and about 1.75 GB instead of 2 processes and about 0.45 GB (measured).
+      # ChurnSense does not use that feature.
+      MLFLOW_SERVER_ENABLE_JOB_EXECUTION: "false"
+    volumes:
+      - /srv/churnsense/mlflow/db:/mlflow/db
+      - /srv/churnsense/mlflow/artifacts:/mlflow/artifacts
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:5000/health', timeout=4)"]
+      interval: 30s
+      timeout: 6s
+      retries: 5
+      start_period: 40s
+    mem_limit: 1g
+    cpus: 1
+    restart: unless-stopped
+    logging: *logging
+    networks: [churnnet]
+
+  model-server:
+    build:
+      context: .
+      dockerfile: services/model_server/Dockerfile
+      args:
+        BASE_IMAGE: churnsense/base:${TAG:-dev}
+    image: churnsense/model-server:${TAG:-dev}
+    user: "${HOST_UID:?run make env first}:${HOST_GID:?run make env first}"
+    environment:
+      HOME: /tmp
+      USER: modelserver
+      LOGNAME: modelserver
+      SERVING_DIR: /srv/churnsense/serving
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?run make env first}
+      # one thread per numeric library: with a 1-CPU limit, several threads per request only
+      # burn the CPU quota and get throttled (measured: parallel was slower than sequential)
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    volumes:
+      - /srv/churnsense/serving:/srv/churnsense/serving:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8001/health', timeout=4)"]
+      interval: 20s
+      timeout: 6s
+      retries: 5
+      start_period: 40s
+    mem_limit: 512m
+    cpus: 1
+    restart: unless-stopped
+    logging: *logging
+    networks: [churnnet]
+
+  backend:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+      args:
+        BASE_IMAGE: churnsense/base:${TAG:-dev}
+    image: churnsense/backend:${TAG:-dev}
+    user: "${HOST_UID:?run make env first}:${HOST_GID:?run make env first}"
+    environment:
+      HOME: /tmp
+      USER: backend
+      LOGNAME: backend
+      MODEL_SERVER_URL: http://model-server:8001
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?run make env first}
+      DRIFT_URL: http://drift-monitor:8002
+      INFERENCE_LOG_DIR: /data/inference-logs
+      # one thread per numeric library: with a 1-CPU limit, several threads per request only
+      # burn the CPU quota and get throttled (measured: parallel was slower than sequential)
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      REPORTS_DIR: /data/reports
+      STATE_DIR: /data/state
+      ID_HASH_SALT: ${ID_HASH_SALT:?run make env first}
+    volumes:
+      - /srv/churnsense/inference-logs:/data/inference-logs
+      - ./reports:/data/reports:ro
+      # read-write: the backend queues console requests in state/requests; the controller reads them
+      - /srv/churnsense/state:/data/state
+    depends_on:
+      model-server:
+        condition: service_started
+    healthcheck:
+      # /fields never depends on the model, so the backend itself is judged on its own
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/api/v1/fields', timeout=4)"]
+      interval: 20s
+      timeout: 6s
+      retries: 5
+      start_period: 30s
+    mem_limit: 256m
+    cpus: 1
+    restart: unless-stopped
+    logging: *logging
+    networks: [churnnet]
+
+  drift-monitor:
+    build:
+      context: .
+      dockerfile: services/drift_monitor/Dockerfile
+      args:
+        BASE_IMAGE: churnsense/base:${TAG:-dev}
+    image: churnsense/drift-monitor:${TAG:-dev}
+    user: "${HOST_UID:?run make env first}:${HOST_GID:?run make env first}"
+    environment:
+      HOME: /tmp
+      USER: driftmonitor
+      LOGNAME: driftmonitor
+      INFERENCE_LOG_DIR: /data/inference-logs
+      REFERENCE_PROFILE: /data/models/reference_profile.json
+      PARAMS_FILE: /app/params.yaml
+    volumes:
+      - /srv/churnsense/inference-logs:/data/inference-logs:ro
+      - ./models:/data/models:ro
+      - ./params.yaml:/app/params.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8002/health', timeout=4)"]
+      interval: 30s
+      timeout: 6s
+      retries: 5
+      start_period: 30s
+    mem_limit: 256m
+    cpus: 0.5
+    restart: unless-stopped
+    logging: *logging
+    networks: [churnnet]
+
+  pushgateway:
+    image: prom/pushgateway:v1.10.0
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9091/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    mem_limit: 64m
+    restart: unless-stopped
+    logging: *logging
+    networks: [churnnet]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    user: "${HOST_UID:?run make env first}:${HOST_GID:?run make env first}"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=1GB
+    volumes:
+      # the FOLDER, not single files: a replaced file (for example by unpacking a new release) would
+      # stay stale inside the container, but a changed file inside a mounted folder is seen at once
+      - ./services/prometheus:/etc/prometheus:ro
+      - /srv/churnsense/prometheus:/prometheus
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 384m
+    restart: unless-stopped
+    logging: *logging
+    networks: [churnnet]
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    user: "${HOST_UID:?run make env first}:${HOST_GID:?run make env first}"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run make env first}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_SERVER_ROOT_URL: http://localhost:3000
+    volumes:
+      - ./services/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./services/grafana/dashboards:/etc/grafana/dashboards:ro
+      - /srv/churnsense/grafana:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 384m
+    restart: unless-stopped
+    logging: *logging
+    networks: [churnnet]
+
+  controller:
+    # The retrain controller: the trainer image running a watch loop (drift, performance, gate).
+    image: churnsense/trainer:${TAG:-dev}
+    command: ["python", "-m", "churnsense.controller.main"]
+    user: "${HOST_UID:?run make env first}:${HOST_GID:?run make env first}"
+    working_dir: /workspace
+    environment:
+      HOME: /tmp/home
+      USER: trainer
+      LOGNAME: trainer
+      PYTHONPATH: /workspace/src
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      PUSHGATEWAY_URL: http://pushgateway:9091
+      MODEL_SERVER_URL: http://model-server:8001
+      BACKEND_URL: http://backend:8000
+      DRIFT_URL: http://drift-monitor:8002
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?run make env first}
+      INFERENCE_LOG_DIR: /srv/churnsense/inference-logs
+      STATE_DIR: /srv/churnsense/state
+      RAY_memory_usage_threshold: "0.85"
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: /workspace
+    volumes:
+      - .:/workspace
+      - /srv/churnsense/dvc-remote:/srv/churnsense/dvc-remote
+      - /srv/churnsense/serving:/srv/churnsense/serving
+      - /srv/churnsense/inference-logs:/srv/churnsense/inference-logs
+      - /srv/churnsense/state:/srv/churnsense/state
+    depends_on:
+      mlflow:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    healthcheck:
+      # the loop rewrites this file every round, so an old file means the loop is stuck
+      test: ["CMD", "python", "-c", "import os, time; assert time.time() - os.path.getmtime('/srv/churnsense/state/controller_status.json') < 300"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 150s
+    shm_size: 1gb
+    cpus: 3
+    mem_limit: 2560m
+    restart: unless-stopped
+    logging: *logging
+    networks: [churnnet]
+
+  nginx:
+    # The FRONTEND service: nginx with the web interface baked into the image, plus the HTTPS proxy
+    # to the backend. Frontend and backend are separate images and separate services.
+    build:
+      context: .
+      dockerfile: services/frontend/Dockerfile
+    image: churnsense/frontend:${TAG:-dev}
+    environment:
+      API_BASE: /api/v1
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - /srv/churnsense/secrets/tls:/etc/nginx/tls:ro
+    depends_on:
+      backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    mem_limit: 64m
+    cpus: 0.5
+    restart: unless-stopped
+    logging: *logging
+    networks: [churnnet]
+
+  trainer:
+    profiles: ["train"]
+    build:
+      context: .
+      dockerfile: services/trainer/Dockerfile
+      args:
+        BASE_IMAGE: churnsense/base:${TAG:-dev}
+    image: churnsense/trainer:${TAG:-dev}
+    # Run as you, so the files written into the repository belong to you, not to root.
+    user: "${HOST_UID:?run make env first}:${HOST_GID:?run make env first}"
+    working_dir: /workspace
+    environment:
+      HOME: /tmp/home
+      USER: trainer
+      LOGNAME: trainer
+      PYTHONPATH: /workspace/src
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+      PUSHGATEWAY_URL: http://pushgateway:9091
+      PIPELINE_TRIGGER: ${PIPELINE_TRIGGER:-manual}
+      # used by `make promote`: reload the model server and smoke-test through the backend
+      MODEL_SERVER_URL: http://model-server:8001
+      BACKEND_URL: http://backend:8000
+      DRIFT_URL: http://drift-monitor:8002
+      INFERENCE_LOG_DIR: /srv/churnsense/inference-logs
+      STATE_DIR: /srv/churnsense/state
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      RAY_memory_usage_threshold: "0.85"
+      # Git refuses a repository owned by another user ("dubious ownership"); allow this one.
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: /workspace
+    volumes:
+      - .:/workspace
+      # The DVC remote and the serving folder are mounted at the SAME path as on the host.
+      - /srv/churnsense/dvc-remote:/srv/churnsense/dvc-remote
+      - /srv/churnsense/serving:/srv/churnsense/serving
+      - /srv/churnsense/inference-logs:/srv/churnsense/inference-logs
+      - /srv/churnsense/state:/srv/churnsense/state
+    shm_size: 1gb          # Ray's object store lives in /dev/shm (Docker's default is 64 MB)
+    cpus: 3                # leave one vCPU for everything else
+    mem_limit: 2560m
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    logging: *logging
+    networks: [churnnet]
+
+networks:
+  churnnet:
+    name: churnnet

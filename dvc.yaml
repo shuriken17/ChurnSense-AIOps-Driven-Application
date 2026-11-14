@@ -1,0 +1,185 @@
+# The DVC DAG is the continuous-integration pipeline of ChurnSense.
+# Batch 1 contains the data stages; train, evaluate and gate are added in Batch 2.
+#
+#   ingest -> validate -> split -> synthesize -> featurize
+#                     \-> eda
+#
+# Small JSON reports use cache: false so they stay in Git and `git log` / `dvc metrics diff`
+# show their history. Everything else lives in the DVC cache and the local remote.
+stages:
+  ingest:
+    cmd: python -m churnsense.pipeline.ingest
+    deps:
+      - src/churnsense/pipeline/ingest.py
+      - src/churnsense/standardise.py
+      - src/churnsense/schema.py
+      - src/churnsense/raycfg.py
+      - data/raw/telco_churn.csv
+      - data/raw/SOURCE.md
+      - data/feedback
+    params:
+      - seed
+      - ray
+      - ingest
+      - validation.max_quarantine_frac
+    outs:
+      - data/interim/ingested.parquet
+    metrics:
+      - reports/ingest_stats.json:
+          cache: false
+
+  validate:
+    cmd: python -m churnsense.pipeline.validate
+    deps:
+      - src/churnsense/pipeline/validate.py
+      - src/churnsense/validation.py
+      - src/churnsense/schema.py
+      - data/interim/ingested.parquet
+    params:
+      - validation
+    outs:
+      - data/interim/validated.parquet
+      - data/quarantine/rejected.parquet
+    metrics:
+      - reports/validation_report.json:
+          cache: false
+
+  eda:
+    cmd: python -m churnsense.pipeline.eda
+    deps:
+      - src/churnsense/pipeline/eda.py
+      - src/churnsense/schema.py
+      - data/interim/validated.parquet
+    outs:
+      - reports/eda
+    metrics:
+      - reports/eda_summary.json:
+          cache: false
+
+  split:
+    cmd: python -m churnsense.pipeline.split
+    deps:
+      - src/churnsense/pipeline/split.py
+      - data/interim/validated.parquet
+    params:
+      - seed
+      - split
+    outs:
+      - data/interim/splits/train_real.parquet
+      - data/interim/splits/val.parquet
+      - data/interim/splits/test_golden.parquet
+      - data/interim/splits/test_recent.parquet
+    metrics:
+      - reports/split_report.json:
+          cache: false
+
+  synthesize:
+    cmd: python -m churnsense.pipeline.synthesize
+    deps:
+      - src/churnsense/pipeline/synthesize.py
+      - src/churnsense/schema.py
+      - src/churnsense/raycfg.py
+      - data/interim/splits/train_real.parquet
+    params:
+      - seed
+      - ray
+      - synthetic
+    outs:
+      - data/synthetic/train_synthetic.parquet
+    metrics:
+      - reports/synthetic_stats.json:
+          cache: false
+
+  featurize:
+    cmd: python -m churnsense.pipeline.featurize
+    deps:
+      - src/churnsense/pipeline/featurize.py
+      - src/churnsense/features
+      - src/churnsense/schema.py
+      - src/churnsense/raycfg.py
+      - data/interim/splits/train_real.parquet
+      - data/interim/splits/val.parquet
+      - data/interim/splits/test_golden.parquet
+      - data/interim/splits/test_recent.parquet
+      - data/synthetic/train_synthetic.parquet
+    params:
+      - ray
+      - features
+    outs:
+      - data/processed/train.parquet
+      - data/processed/val.parquet
+      - data/processed/test_golden.parquet
+      - data/processed/test_recent.parquet
+      - models/reference_profile.json
+    metrics:
+      - reports/featurize_stats.json:
+          cache: false
+
+  train:
+    cmd: python -m churnsense.pipeline.train
+    deps:
+      - src/churnsense/pipeline/train.py
+      - src/churnsense/model
+      - src/churnsense/features
+      - src/churnsense/schema.py
+      - src/churnsense/mlflow_utils.py
+      - requirements.lock
+      - data/processed/train.parquet
+      - data/processed/val.parquet
+      - data/interim/splits/val.parquet
+      - models/reference_profile.json
+    params:
+      - seed
+      - train
+    outs:
+      - models/candidate
+      - models/run_info.json:
+          cache: false
+    metrics:
+      - reports/train_metrics.json:
+          cache: false
+    plots:
+      - reports/plots/pr_curve_val.csv:
+          x: recall
+          y: precision
+          cache: false
+
+  evaluate:
+    cmd: python -m churnsense.pipeline.evaluate
+    always_changed: true  # the champion can change without any file in this repository changing
+    deps:
+      - src/churnsense/pipeline/evaluate.py
+      - src/churnsense/model
+      - src/churnsense/features
+      - src/churnsense/schema.py
+      - src/churnsense/mlflow_utils.py
+      - scripts/score_model.py
+      - models/candidate
+      - models/run_info.json
+      - data/interim/splits/test_golden.parquet
+      - data/interim/splits/test_recent.parquet
+    params:
+      - seed
+      - evaluate
+      - gate.min_precision
+    outs:
+      - reports/comparison.json:
+          cache: false
+      - reports/smoke_rows.json:
+          cache: false
+    metrics:
+      - reports/eval_metrics.json:
+          cache: false
+
+  gate:
+    cmd: python -m churnsense.pipeline.gate
+    deps:
+      - src/churnsense/pipeline/gate.py
+      - reports/eval_metrics.json
+      - reports/comparison.json
+      - models/run_info.json
+    params:
+      - gate
+    metrics:
+      - reports/gate_decision.json:
+          cache: false

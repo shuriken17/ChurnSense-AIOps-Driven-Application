@@ -1,0 +1,23 @@
+# Top-level Python dependencies of the trainer, the model server and the tests.
+# requirements.lock (exact versions of everything) is generated from this file with:
+#   uv pip compile requirements.in --python-version 3.12 -o requirements.lock
+numpy
+pandas
+pyarrow
+scipy
+scikit-learn
+lightgbm
+shap
+matplotlib
+ray[data]
+mlflow
+dvc
+pandera
+pydantic
+pyyaml
+prometheus-client
+pytest
+pytest-cov
+pytest-html
+ruff
+httpx

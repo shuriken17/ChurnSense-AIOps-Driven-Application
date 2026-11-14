@@ -1,0 +1,278 @@
+[
+ {
+  "allowed": null,
+  "description": "Unique customer identifier (optional when scoring).",
+  "kind": "id",
+  "label": "Customer id",
+  "max": null,
+  "min": null,
+  "name": "customer_id",
+  "nullable": false,
+  "required": false
+ },
+ {
+  "allowed": [
+   "Male",
+   "Female"
+  ],
+  "description": "Customer gender.",
+  "kind": "category",
+  "label": "Gender",
+  "max": null,
+  "min": null,
+  "name": "gender",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": null,
+  "description": "1 if the customer is a senior citizen, otherwise 0.",
+  "kind": "binary",
+  "label": "Senior citizen",
+  "max": 1,
+  "min": 0,
+  "name": "senior_citizen",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Yes",
+   "No"
+  ],
+  "description": "Has a partner.",
+  "kind": "category",
+  "label": "Partner",
+  "max": null,
+  "min": null,
+  "name": "partner",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Yes",
+   "No"
+  ],
+  "description": "Has dependents.",
+  "kind": "category",
+  "label": "Dependents",
+  "max": null,
+  "min": null,
+  "name": "dependents",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": null,
+  "description": "Months the customer has stayed with the company.",
+  "kind": "int",
+  "label": "Tenure months",
+  "max": 120,
+  "min": 0,
+  "name": "tenure_months",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Yes",
+   "No"
+  ],
+  "description": "Has phone service.",
+  "kind": "category",
+  "label": "Phone service",
+  "max": null,
+  "min": null,
+  "name": "phone_service",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Yes",
+   "No",
+   "No phone service"
+  ],
+  "description": "Has multiple phone lines.",
+  "kind": "category",
+  "label": "Multiple lines",
+  "max": null,
+  "min": null,
+  "name": "multiple_lines",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "DSL",
+   "Fiber optic",
+   "No"
+  ],
+  "description": "Type of internet service.",
+  "kind": "category",
+  "label": "Internet service",
+  "max": null,
+  "min": null,
+  "name": "internet_service",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Yes",
+   "No",
+   "No internet service"
+  ],
+  "description": "Has online security add-on.",
+  "kind": "category",
+  "label": "Online security",
+  "max": null,
+  "min": null,
+  "name": "online_security",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Yes",
+   "No",
+   "No internet service"
+  ],
+  "description": "Has online backup add-on.",
+  "kind": "category",
+  "label": "Online backup",
+  "max": null,
+  "min": null,
+  "name": "online_backup",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Yes",
+   "No",
+   "No internet service"
+  ],
+  "description": "Has device protection add-on.",
+  "kind": "category",
+  "label": "Device protection",
+  "max": null,
+  "min": null,
+  "name": "device_protection",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Yes",
+   "No",
+   "No internet service"
+  ],
+  "description": "Has tech support add-on.",
+  "kind": "category",
+  "label": "Tech support",
+  "max": null,
+  "min": null,
+  "name": "tech_support",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Yes",
+   "No",
+   "No internet service"
+  ],
+  "description": "Has streaming TV add-on.",
+  "kind": "category",
+  "label": "Streaming tv",
+  "max": null,
+  "min": null,
+  "name": "streaming_tv",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Yes",
+   "No",
+   "No internet service"
+  ],
+  "description": "Has streaming movies add-on.",
+  "kind": "category",
+  "label": "Streaming movies",
+  "max": null,
+  "min": null,
+  "name": "streaming_movies",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Month-to-month",
+   "One year",
+   "Two year"
+  ],
+  "description": "Contract type.",
+  "kind": "category",
+  "label": "Contract",
+  "max": null,
+  "min": null,
+  "name": "contract",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Yes",
+   "No"
+  ],
+  "description": "Uses paperless billing.",
+  "kind": "category",
+  "label": "Paperless billing",
+  "max": null,
+  "min": null,
+  "name": "paperless_billing",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": [
+   "Electronic check",
+   "Mailed check",
+   "Bank transfer (automatic)",
+   "Credit card (automatic)"
+  ],
+  "description": "How the customer pays.",
+  "kind": "category",
+  "label": "Payment method",
+  "max": null,
+  "min": null,
+  "name": "payment_method",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": null,
+  "description": "Current monthly bill.",
+  "kind": "float",
+  "label": "Monthly charges",
+  "max": 500,
+  "min": 0,
+  "name": "monthly_charges",
+  "nullable": false,
+  "required": true
+ },
+ {
+  "allowed": null,
+  "description": "Total billed so far (estimated from tenure when missing).",
+  "kind": "float",
+  "label": "Total charges",
+  "max": 100000,
+  "min": 0,
+  "name": "total_charges",
+  "nullable": true,
+  "required": false
+ }
+]

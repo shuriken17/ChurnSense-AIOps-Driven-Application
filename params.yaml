@@ -1,0 +1,88 @@
+# ChurnSense parameters. Every stage reads this file; DVC re-runs a stage when a
+# section it depends on changes. Keep this file in Git.
+seed: 42
+
+ray:
+  num_cpus: 3
+  object_store_mb: 800
+  batch_size: 4096
+  max_task_retries: 3
+
+ingest:
+  raw_path: data/raw/telco_churn.csv
+  raw_expected_rows: 7043
+  feedback_dir: data/feedback
+  max_duplicate_frac: 0.01
+
+validation:
+  min_rows: 1000
+  max_null_frac: 0.05
+  max_quarantine_frac: 0.05
+  churn_rate_bounds: [0.10, 0.45]
+
+split:
+  val_frac: 0.15
+  test_frac: 0.15
+  recent_holdout_frac: 0.30
+  recent_window_min_rows: 1000   # pool newest batches until this many rows (30% of it = 300, the gate's minimum)
+
+synthetic:
+  enabled: true
+  n_rows: 200000
+  n_chunks: 12
+  numeric_noise_frac_of_std: 0.05
+  max_ks_stat: 0.05
+  max_category_gap: 0.02
+
+features:
+  tenure_bins: [0, 6, 12, 24, 48, 1000]
+
+train:
+  families: [logreg, lightgbm]
+  n_iter: 20
+  cv_folds: 3
+  selection_metric: pr_auc
+  min_precision_at_high: 0.50
+  medium_band_recall: 0.90
+  # added in batch 2 (documented deviations from the original design):
+  search_real_only: true          # cross-validate on real rows only: synthetic rows are copies
+  final_fit_with_synthetic: true  # the final model is fitted on real + synthetic rows
+  ablations: true                 # log the two ablation runs (synthetic off, engineered off)
+  permutation_repeats: 3
+  lightgbm:
+    num_threads: 3
+    max_bin: 255
+
+evaluate:
+  bootstrap_resamples: 1000
+  smoke_rows: 20
+  latency_calls: 200
+
+gate:
+  min_roc_auc: 0.80
+  min_recall: 0.70
+  min_precision: 0.50
+  golden_auc_noninferiority: 0.01
+  golden_recall_noninferiority: 0.02
+  recent_min_rows: 300
+  recent_min_positives: 50
+  pos_rate_bounds: [0.05, 0.60]
+  max_p95_latency_ms: 200
+  max_model_mb: 50
+
+drift:
+  window_rows: 500          # the latest predictions compared with the training profile
+  min_rows: 200             # below this many rows no drift verdict is given
+  psi_warn: 0.10            # PSI from here: "warn"
+  psi_alert: 0.25           # PSI from here: counts toward an alert
+  consecutive_checks: 3     # alert only after this many checks in a row (no flapping)
+  interval_seconds: 60
+
+controller:
+  poll_seconds: 60
+  cooldown_hours: 6            # at least this long between two retraining runs
+  min_new_feedback: 100        # retraining on the same data would give the same model
+  recall_floor: 0.60           # performance trigger: recall of the HIGH band below this ...
+  perf_min_rows: 100           # ... with at least this many reported outcomes
+  log_retention_days: 14       # older inference logs and feedback files are deleted
+  retrain_timeout_minutes: 40

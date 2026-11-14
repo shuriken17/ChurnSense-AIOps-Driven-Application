@@ -1,0 +1,45 @@
+[project]
+name = "churnsense"
+version = "0.1.0"
+description = "ChurnSense: AIOps Driven Churn Prediction and Retention Risk Scoring System for Subscription Services"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "services/backend", "tests"]
+
+[tool.ruff.lint]
+# E/W pycodestyle (PEP 8), F pyflakes, I import order, N naming, UP modern syntax,
+# B bugbear, SIM simplifications, D docstrings (the course asks for documented code).
+select = ["E", "W", "F", "I", "N", "UP", "B", "SIM", "D"]
+ignore = ["D105", "D107", "D203", "D213"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "services/backend"]
+testpaths = ["tests"]
+markers = [
+    "unit: fast tests with no services (about 1 minute)",
+    "integration: tests that run pipeline stages or need services",
+    "e2e: end-to-end tests that wait for real alerts (30-45 minutes)",
+]
+addopts = "-ra"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    # third-party deprecations that are not ours to fix (MLflow autolog, the shap library)
+    "ignore:`y_pred` was renamed to `y_proba`:FutureWarning",
+    "ignore:LightGBM binary classifier with TreeExplainer shap values output has changed:UserWarning",
+]
+
+[tool.coverage.run]
+source = ["src/churnsense"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
